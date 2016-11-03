@@ -14,71 +14,110 @@ declare interface Context {
 
 declare interface QueryTreeArgument {
   component: any;
-  queries?: any[];
   context?: Context;
 }
 
-export function getPropsFromChild(child) {
-  const { props, type } = child;
-  let ownProps = assign({}, props);
-  if (type && type.defaultProps) ownProps = assign({}, type.defaultProps, props);
-  return ownProps;
-}
+// Recurse an React Element tree, running visitor on each element.
+// If visitor returns `false`, don't call the element's render function
+//   or recurse into it's child elements
+export function walkTree(element: any, context: any, visitor: (any) => boolean | void) {
+  console.log(element)
+  const shouldContinue = visitor(element);
 
-export function getChildFromComponent(component) {
-  // See if this is a class, or stateless function
-  if (component && component.render) return component.render();
-  return component;
-}
+  if (shouldContinue === false) {
+    return;
+  }
 
-let contextStore = {};
-function getQueriesFromTree(
-  { component, context = {}, queries = []}: QueryTreeArgument, fetch: boolean = true
-) {
-  contextStore = assign({}, contextStore, context);
-  if (!component) return;
+  const Component = element.type;
+  // a stateless functional component or a class
+  if (typeof Component === 'function') {
+    const props = assign({}, Component.defaultProps, element.props);
+    const component = new Component(props, context);
 
-  // stateless function
-  if (typeof component === 'function') component = { type: component };
-  const { type, props } = component;
-
-  if (typeof type === 'function') {
-    let ComponentClass = type;
-    let ownProps = getPropsFromChild(component);
-    const Component = new ComponentClass(ownProps, context);
-    try {
-      Component.props = ownProps;
-      Component.context = context;
-      Component.setState = (newState: any) => {
-        Component.state = assign({}, Component.state, newState);
-      };
-    } catch (e) {} // tslint:disable-line
-    if (Component.componentWillMount) Component.componentWillMount();
+    if (component.componentWillMount) {
+      component.componentWillMount();
+    }
 
     let newContext = context;
-    if (Component.getChildContext) newContext = assign({}, context, Component.getChildContext());
+    if (component.getChildContext) {
+      newContext = assign({}, context, component.getChildContext());
+    }
 
-    // see if there is a fetch data method
-    if (typeof type.fetchData === 'function' && fetch) {
+    // now render
+    const child = component.render();
+    walkTree(child, newContext, visitor);
+
+  // a basic string or dom element
+  } else {
+    if (element.props.children) {
+      Children.forEach(element.props.children, (child: any) => {
+        walkTree(child, context, visitor);
+      });
+    }
+  }
+}
+
+function getQueriesFromTree(
+  { element, context = {} }: QueryTreeArgument, fetch: boolean = true
+) {
+  const queries = [];
+
+  walkTree(element, context, (element) => {
+    const componentClass = element.type || element;
+
+    if (typeof componentClass.fetchData === 'function' && fetch) {
       const query = type.fetchData(ownProps, newContext);
       if (query) queries.push({ query, component });
     }
-
-    getQueriesFromTree({
-      component: getChildFromComponent(Component),
-      context: newContext,
-      queries,
-    });
-  } else if (props && props.children) {
-    Children.forEach(props.children, (child: any) => getQueriesFromTree({
-      component: child,
-      context,
-      queries,
-    }));
-  }
-
-  return { queries, context: contextStore };
+  });
 }
+
+let contextStore = {};
+// function getQueriesFromTree(
+//   { component, context = {}, queries = []}: QueryTreeArgument, fetch: boolean = true
+// ) {
+//   contextStore = assign({}, contextStore, context);
+//   if (!component) return;
+//
+//   // stateless function
+//   if (typeof component === 'function') component = { type: component };
+//   const { type, props } = component;
+//
+//   if (typeof type === 'function') {
+//     let ComponentClass = type;
+//     let ownProps = getPropsFromChild(component);
+//     const Component = new ComponentClass(ownProps, context);
+//     Component.props = ownProps;
+//     Component.context = context;
+//     Component.setState = (newState: any) => {
+//       Component.state = assign({}, Component.state, newState);
+//     };
+//     if (Component.componentWillMount) Component.componentWillMount();
+//
+//     let newContext = context;
+//     if (Component.getChildContext) newContext = assign({}, context, Component.getChildContext());
+//
+//     // see if there is a fetch data method
+//     if (typeof type.fetchData === 'function' && fetch) {
+//       const query = type.fetchData(ownProps, newContext);
+//       if (query) queries.push({ query, component });
+//     }
+//
+//     getQueriesFromTree({
+//       component: getChildFromComponent(Component),
+//       context: newContext,
+//       queries,
+//     });
+//   } else if (props && props.children) {
+//     Children.forEach(props.children, (child: any) => getQueriesFromTree({
+//       component: child,
+//       context,
+//       queries,
+//     }));
+//   }
+//
+//   return { queries, context: contextStore };
+// }
 
 // XXX component Cache
 export function getDataFromTree(app, ctx: any = {}, fetch: boolean = true): Promise<any> {

@@ -2,9 +2,10 @@ import * as React from 'react';
 import * as ReactDOM from 'react-dom/server';
 import ApolloClient, { createNetworkInterface, createFragment } from 'apollo-client';
 import { graphql, ApolloProvider } from '../../../src';
-import { getDataFromTree, renderToStringWithData } from '../../../src/server';
+import { walkTree, getDataFromTree, renderToStringWithData } from '../../../src/server';
 import 'isomorphic-fetch';
 import gql from 'graphql-tag';
+import * as _ from 'lodash';
 
 import { mockNetworkInterface } from '../../../src/test-utils';
 
@@ -30,6 +31,39 @@ describe('SSR', () => {
   //     done(e);
   //   }
   // });
+
+  describe('`walkTree`', () => {
+    describe('traversal', () => {
+      it('basic element trees', () => {
+        let elementCount = 0;
+        const rootElement = <div><span>Foo</span><span>Bar</span></div>;
+        walkTree(rootElement, {}, (element) => { elementCount += 1 });
+        expect(elementCount).toEqual(5);
+      });
+
+      it('functional stateless components', () => {
+        let elementCount = 0;
+        const MyComponent = (n) => <div>{_.times(n, (i) => <span key={i} />)}</div>;
+        walkTree(<MyComponent n={5}/>, {}, (element) => { elementCount += 1 });
+        expect(elementCount).toEqual(6);
+      });
+
+      it('functional stateless components with children', () => {
+      });
+
+      it('basic classes', () => {
+        let elementCount = 0;
+        class MyComponent extends React.Component<any, any> {
+          render() {
+            return <div>{_.times(this.props.n, (i) => <span key={i} />)}</div>;
+          }
+        }
+        walkTree(<MyComponent n={5}/>, {}, (element) => { elementCount += 1 });
+        expect(elementCount).toEqual(7);
+      });
+    });
+
+  });
 
   describe('`getDataFromTree`', () => {
     it('should run through all of the queries that want SSR', () => {
